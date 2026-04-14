@@ -1,0 +1,94 @@
+{
+  "schema_version": "1.0",
+  "mcp_name": "eiopa-insurance-mcp",
+  "mcp_type": "regulatory_publications",
+  "authority": "European Insurance and Occupational Pensions Authority (EIOPA)",
+  "portal": "https://www.eiopa.europa.eu/publications/guidelines",
+  "census_date": "2026-04-14",
+  "agent": "claude-opus-4-6",
+  "summary": {
+    "total_publications": 185,
+    "total_categories": 3,
+    "guidelines": 105,
+    "technical_standards": 80,
+    "circulars": 0,
+    "ingested": 185,
+    "excluded": 0
+  },
+  "categories": [
+    {
+      "id": "solvency-ii-guidelines",
+      "name": "Solvency II Guidelines",
+      "version": "Consolidated (2016-2024)",
+      "domain": "Solvency II",
+      "effective_date": "2016-01-01",
+      "item_count": 80,
+      "measurement_unit": "guidelines",
+      "source_url": "https://www.eiopa.europa.eu/publications/guidelines",
+      "ingested": true,
+      "verification_date": "2026-04-14"
+    },
+    {
+      "id": "technical-standards",
+      "name": "Technical Standards (ITS/RTS)",
+      "version": "Solvency II Delegated Regulation EU 2015/35",
+      "domain": "Technical Standards (ITS/RTS)",
+      "effective_date": "2016-01-01",
+      "item_count": 40,
+      "measurement_unit": "technical standards",
+      "source_url": "https://www.eiopa.europa.eu/publications/technical-standards",
+      "ingested": true,
+      "verification_date": "2026-04-14"
+    },
+    {
+      "id": "dora-iorp",
+      "name": "DORA & IORP II",
+      "version": "DORA (2025), IORP II (2019)",
+      "domain": "DORA & IORP II",
+      "effective_date": "2019-01-13",
+      "item_count": 25,
+      "measurement_unit": "guidelines and technical standards",
+      "source_url": "https://www.eiopa.europa.eu/document-library",
+      "ingested": true,
+      "verification_date": "2026-04-14"
+    }
+  ],
+  "database_rows": {
+    "guidelines": 105,
+    "technical_standards": 80,
+    "categories": 3,
+    "notes": "Publications ingested from 4 EIOPA document-library sections (guidelines, technical-standards, opinions, supervisory-statements) and normalised into the two primary tables. 185 total ingested publications yield 105 guideline rows + 80 technical-standard rows."
+  },
+  "exclusions": [
+    {
+      "id": "qna",
+      "description": "EIOPA Q&A documents",
+      "reason": "Informal guidance, not officially numbered or versioned",
+      "classification": "excluded"
+    },
+    {
+      "id": "non-english",
+      "description": "Non-English EIOPA publications",
+      "reason": "English is the authoritative language for EU regulatory purposes",
+      "classification": "excluded"
+    },
+    {
+      "id": "nca-guidance",
+      "description": "National competent authority implementation guidance",
+      "reason": "Out of scope; per-jurisdiction MCPs cover NCA material",
+      "classification": "excluded"
+    },
+    {
+      "id": "cjeu",
+      "description": "CJEU judgments interpreting EU insurance law",
+      "reason": "Legal analysis is out of scope",
+      "classification": "excluded"
+    },
+    {
+      "id": "draft-consultation",
+      "description": "Draft consultation papers",
+      "reason": "Only finalised publications are indexed",
+      "classification": "excluded"
+    }
+  ]
+}
