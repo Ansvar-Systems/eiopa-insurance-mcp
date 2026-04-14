@@ -16,6 +16,11 @@ import { dirname } from "node:path";
 const DB_PATH = process.env["EIOPA_DB_PATH"] ?? "data/eiopa.db";
 
 export const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS db_metadata (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS categories (
   id              TEXT    PRIMARY KEY,
   name            TEXT    NOT NULL,
@@ -158,10 +163,17 @@ export function getDb(): Database.Database {
     mkdirSync(dir, { recursive: true });
   }
 
-  _db = new Database(DB_PATH);
-  _db.pragma("journal_mode = WAL");
-  _db.pragma("foreign_keys = ON");
-  _db.exec(SCHEMA_SQL);
+  // Runtime is read-only when the shipped DB exists. Schema bootstrap is only
+  // needed when a fresh DB is created (e.g. seed-sample run from CI without
+  // the ingested DB present), so handle that fallback explicitly.
+  const dbExists = existsSync(DB_PATH);
+  if (dbExists) {
+    _db = new Database(DB_PATH, { readonly: true, fileMustExist: true });
+  } else {
+    _db = new Database(DB_PATH);
+    _db.pragma("foreign_keys = ON");
+    _db.exec(SCHEMA_SQL);
+  }
 
   return _db;
 }

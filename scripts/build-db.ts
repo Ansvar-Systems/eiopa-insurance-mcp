@@ -21,6 +21,8 @@ import {
 import { join, dirname } from "node:path";
 import { SCHEMA_SQL } from "../src/db.js";
 
+const PKG = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
+
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
@@ -306,15 +308,34 @@ async function main(): Promise<void> {
     }
   }
 
-  // Switch to WAL for production use
-  db.pragma("journal_mode = WAL");
-  db.pragma("vacuum");
+  // Populate db_metadata so consumers can identify the database (golden gate 5)
+  const upsertMeta = db.prepare(
+    "INSERT INTO db_metadata (key, value) VALUES (?, ?) " +
+      "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  );
+  upsertMeta.run("schema_version", "1.0");
+  upsertMeta.run("category", "compliance");
+  upsertMeta.run("mcp_name", "eiopa-insurance-mcp");
+  upsertMeta.run("database_version", PKG.version);
+  upsertMeta.run("built_at", new Date().toISOString());
+
+  // Ship the database in DELETE journal mode (golden standard requirement).
+  // The runtime uses read-only access, so WAL is unnecessary and adds sidecar files.
+  db.pragma("journal_mode = DELETE");
+  db.exec("VACUUM;");
+
+  // Confirm pragmas before close
+  const journalMode = db.pragma("journal_mode", { simple: true });
+  const integrityCheck = db.pragma("integrity_check", { simple: true });
+  db.close();
 
   console.log(`
 Build complete:
   Categories          : ${categoriesInserted} inserted
   Guidelines          : ${guidelinesInserted} inserted
   Technical Standards : ${technicalStandardsInserted} inserted
+  Journal mode        : ${journalMode}
+  Integrity           : ${integrityCheck}
 
 Database: ${DB_PATH}`);
 }

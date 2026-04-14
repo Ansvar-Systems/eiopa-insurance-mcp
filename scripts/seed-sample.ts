@@ -7,7 +7,7 @@
  */
 
 import Database from "better-sqlite3";
-import { existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { SCHEMA_SQL } from "../src/db.js";
 
@@ -22,10 +22,23 @@ if (force && existsSync(DB_PATH)) {
 }
 
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
+// Use DELETE mode for seed builds so the shipped DB matches golden requirements
+db.pragma("journal_mode = DELETE");
 db.pragma("foreign_keys = ON");
 db.exec(SCHEMA_SQL);
 console.log(`Database initialised at ${DB_PATH}`);
+
+const PKG = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
+const upsertMeta = db.prepare(
+  "INSERT INTO db_metadata (key, value) VALUES (?, ?) " +
+    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+);
+upsertMeta.run("schema_version", "1.0");
+upsertMeta.run("category", "compliance");
+upsertMeta.run("mcp_name", "eiopa-insurance-mcp");
+upsertMeta.run("database_version", PKG.version);
+upsertMeta.run("built_at", new Date().toISOString());
+upsertMeta.run("source_kind", "seed-sample");
 
 // --- Categories ---------------------------------------------------------------
 
@@ -472,7 +485,7 @@ const guidelines: GuidelineRow[] = [
       "in a manner appropriate to the nature and duration of the expected future retirement benefits. " +
       "IORPs must: ensure the security, quality, liquidity, and profitability of the portfolio as a whole; " +
       "only invest in derivative instruments insofar as they contribute to a reduction of investment " +
-      "risks or facilitate efficient portfolio management; invest predominantly in regulated markets; " +
+      "risks or enable efficient portfolio management; invest predominantly in regulated markets; " +
       "document their investment decision-making process; have an investment policy statement reviewed " +
       "at least every three years. ESG integration: IORPs must consider how investment decisions are " +
       "based on long-term factors including environmental, social, and governance factors.",
@@ -682,6 +695,9 @@ console.log(`Inserted ${technicalStandards.length} technical standards`);
 const fc = (db.prepare("SELECT COUNT(*) AS n FROM categories").get() as { n: number }).n;
 const gc = (db.prepare("SELECT COUNT(*) AS n FROM guidelines").get() as { n: number }).n;
 const tsc = (db.prepare("SELECT COUNT(*) AS n FROM technical_standards").get() as { n: number }).n;
+
+// Compact and finalise the shipped DB
+db.exec("VACUUM;");
 
 console.log(`
 Database summary:
