@@ -21,12 +21,14 @@ COPY tsconfig.json ./
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 COPY sources.yml ./
+COPY server.json ./
 
 # Build TypeScript
 RUN npm run build
 
-# Seed the sample database so the container works out-of-the-box
-RUN mkdir -p data && node dist/scripts/seed-sample.js
+# Use the real ingested database when available, otherwise fall back to the seed
+COPY data/ ./data/
+RUN if [ ! -f data/eiopa.db ]; then node dist/scripts/seed-sample.js; fi
 
 # Remove dev dependencies
 RUN npm prune --omit=dev

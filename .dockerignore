@@ -1,0 +1,10 @@
+node_modules
+dist
+data/raw
+data/eiopa.db-shm
+data/eiopa.db-wal
+.git
+.github
+*.log
+.env
+.env.*
