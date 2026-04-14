@@ -117,24 +117,40 @@ function inferCategoryId(doc: FetchedDocument): string {
   return "solvency-ii-guidelines";
 }
 
-function inferGuidelineRef(doc: FetchedDocument): string {
-  // Try to extract an EIOPA reference from the text
-  const refMatch = doc.text.match(/EIOPA-BoS-\d{2,4}\/\d{1,4}/i);
-  if (refMatch) return refMatch[0]!.toUpperCase();
+function slugFromFilename(doc: FetchedDocument): string {
+  return doc.filename
+    .replace(/\.pdf$/i, "")
+    .replace(/^publications-/, "")
+    .replace(/[^a-zA-Z0-9]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .substring(0, 80)
+    .toUpperCase();
+}
 
-  // Fall back to a reference derived from the filename
-  const base = doc.filename.replace(/\.pdf$/i, "").replace(/[^a-zA-Z0-9]/g, "-").substring(0, 40);
-  return `EIOPA-${base.toUpperCase()}`;
+function inferGuidelineRef(doc: FetchedDocument): string {
+  // Combine the EIOPA reference (when present) with the document slug so each
+  // ingested document gets a unique control_ref. The EIOPA reference alone
+  // often repeats across multiple related documents (ORSA, governance, etc.).
+  const slug = slugFromFilename(doc);
+  const refMatch = doc.text.match(/EIOPA-BoS-\d{2,4}[\/\-]\d{1,4}/i);
+  if (refMatch) {
+    return `${refMatch[0]!.toUpperCase().replace(/\//g, "-")}--${slug}`;
+  }
+  return `EIOPA--${slug}`;
 }
 
 function inferTechnicalStandardRef(doc: FetchedDocument): string {
-  // Try to extract an EU regulation reference
+  // Combine the cited EU regulation number with the document slug so each
+  // ingested document is uniquely keyed even when the same regulation is
+  // referenced across many publications.
+  const slug = slugFromFilename(doc);
   const refMatch = doc.text.match(/\(EU\)\s*\d{4}\/\d+/i);
-  if (refMatch) return `EU-${refMatch[0]!.replace(/[^0-9/]/g, "").replace(/^\//, "")}`;
-
-  const year = new Date().getFullYear();
-  const base = doc.filename.replace(/\.pdf$/i, "").replace(/[^a-zA-Z0-9]/g, "-").substring(0, 30);
-  return `EIOPA-TS-${year}-${base.toUpperCase()}`;
+  if (refMatch) {
+    const reg = refMatch[0]!.replace(/[^0-9/]/g, "").replace(/^\//, "");
+    return `EU-${reg}--${slug}`;
+  }
+  return `EIOPA-TS--${slug}`;
 }
 
 function extractDate(text: string): string | null {

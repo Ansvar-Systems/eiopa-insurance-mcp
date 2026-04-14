@@ -1,0 +1,20 @@
+{
+  "generatedAt": "2026-04-14T06:04:10.942Z",
+  "mcp": "eiopa-insurance-mcp",
+  "version": "0.1.0",
+  "sources": [
+    {
+      "name": "EIOPA Publications",
+      "url": "https://www.eiopa.europa.eu/publications/guidelines",
+      "last_fetched": "2026-02-16",
+      "update_frequency": "monthly",
+      "item_count": 188,
+      "status": "current"
+    }
+  ],
+  "totals": {
+    "categories": 3,
+    "guidelines": 105,
+    "technical_standards": 80
+  }
+}

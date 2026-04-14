@@ -1,16 +1,21 @@
 # Coverage — EIOPA Insurance Guidelines MCP
 
-> Last verified: 2026-04-13 | Database version: 0.1.0
+> Last verified: 2026-04-14 | Database version: 0.1.0
 
 ## What's Included
 
-| Source | Items | Version | Completeness | Refresh |
-|--------|-------|---------|-------------|---------|
-| Solvency II Guidelines | ~80 guidelines | 2016-2024 | Partial (key documents) | Monthly |
-| Technical Standards (ITS/RTS) | ~40 standards | EU 2015/35 + updates | Partial | Monthly |
-| DORA & IORP II | ~25 documents | DORA 2025, IORP II 2019 | Partial | Monthly |
+| Source | Items | Version | Last Ingested |
+|--------|-------|---------|---------------|
+| EIOPA Guidelines | 73 | 2026 | 2026-04-14 |
+| EIOPA Technical Standards (ITS/RTS) | 32 | 2026 | 2026-04-14 |
+| EIOPA Opinions | 54 | 2026 | 2026-04-14 |
+| EIOPA Supervisory Statements | 30 | 2026 | 2026-04-14 |
 
-**Total:** 6 tools, ~145 guidelines, opinions, and technical standards
+Documents are scraped from four sections of the EIOPA document library:
+`/document-library/guidelines_en`, `/document-library/technical-standards_en`,
+`/document-library/opinions_en`, `/document-library/supervisory-statements_en`.
+
+**Total:** 6 tools, 185 ingested publications normalised into 105 guideline rows + 80 technical-standard rows in the database.
 
 ## What's NOT Included
 
@@ -62,8 +67,9 @@ Key guidelines included in the seed database:
 
 | Source | Refresh Schedule | Last Refresh | Next Expected |
 |--------|-----------------|-------------|---------------|
-| Solvency II Guidelines | Monthly | 2026-04-13 | 2026-05-13 |
-| Technical Standards | Monthly | 2026-04-13 | 2026-05-13 |
-| DORA & IORP II | Monthly | 2026-04-13 | 2026-05-13 |
+| EIOPA Guidelines | Monthly | 2026-04-14 | 2026-05-14 |
+| EIOPA Technical Standards | Monthly | 2026-04-14 | 2026-05-14 |
+| EIOPA Opinions | Monthly | 2026-04-14 | 2026-05-14 |
+| EIOPA Supervisory Statements | Monthly | 2026-04-14 | 2026-05-14 |
 
 To check freshness programmatically, call the `about` tool.

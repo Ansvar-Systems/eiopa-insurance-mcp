@@ -1,14 +1,24 @@
 /**
  * EIOPA Ingestion Fetcher
  *
- * Fetches the EIOPA publications portal, extracts insurance and pensions regulation
- * links, downloads PDFs, and extracts text content for database ingestion.
+ * Scrapes the EIOPA document library across four sections (guidelines,
+ * technical-standards, opinions, supervisory-statements), walks each section
+ * with `?page=N` pagination until empty, follows each publication detail
+ * page, downloads the attached PDF (or HTML fallback), extracts text, and
+ * writes per-document `<filename>.meta.json` files into `data/raw/`.
+ *
+ * Sections:
+ *   /document-library/guidelines_en             → Solvency II Guidelines
+ *   /document-library/technical-standards_en    → Technical Standards (ITS/RTS)
+ *   /document-library/opinions_en               → Opinions (under Solvency II Guidelines category)
+ *   /document-library/supervisory-statements_en → Supervisory Statements
  *
  * Usage:
  *   npx tsx scripts/ingest-fetch.ts
- *   npx tsx scripts/ingest-fetch.ts --dry-run     # log what would be fetched
- *   npx tsx scripts/ingest-fetch.ts --force        # re-download existing files
- *   npx tsx scripts/ingest-fetch.ts --limit 5      # fetch only first N documents
+ *   npx tsx scripts/ingest-fetch.ts --dry-run       # log what would be fetched
+ *   npx tsx scripts/ingest-fetch.ts --force          # re-download existing files
+ *   npx tsx scripts/ingest-fetch.ts --limit 5        # fetch only first N documents
+ *   npx tsx scripts/ingest-fetch.ts --section=guidelines    # single section
  */
 
 import * as cheerio from "cheerio";
@@ -17,49 +27,31 @@ import {
   mkdirSync,
   writeFileSync,
 } from "node:fs";
-import { join, basename } from "node:path";
+import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
 const BASE_URL = "https://www.eiopa.europa.eu";
-const PORTAL_URL = `${BASE_URL}/publications/guidelines`;
 const RAW_DIR = "data/raw";
 const RATE_LIMIT_MS = 2000;
 const MAX_RETRIES = 3;
 const RETRY_BACKOFF_BASE_MS = 2000;
 const REQUEST_TIMEOUT_MS = 60_000;
 const USER_AGENT = "Ansvar-MCP/1.0 (regulatory-data-ingestion; https://ansvar.eu)";
+const MAX_PAGES_PER_SECTION = 30; // safety cap; real sections top out at ~4
 
-// Keywords to identify insurance/pensions-relevant EIOPA documents
-const EIOPA_KEYWORDS = [
-  "solvency",
-  "orsa",
-  "internal model",
-  "technical provision",
-  "own funds",
-  "scr",
-  "mcr",
-  "governance",
-  "outsourcing",
-  "cloud",
-  "iorp",
-  "pension",
-  "dora",
-  "ict risk",
-  "digital operational resilience",
-  "ict third-party",
-  "underwriting",
-  "reinsurance",
-  "group supervision",
-  "reporting",
-  "disclosure",
-  "sfcr",
-  "rsr",
-  "qrt",
-  "sustainability",
-  "climate",
+interface SectionDefinition {
+  slug: string;                 // URL path segment
+  category: string;             // DB category label
+}
+
+const SECTIONS: SectionDefinition[] = [
+  { slug: "guidelines",             category: "Solvency II Guidelines" },
+  { slug: "technical-standards",    category: "Technical Standards (ITS/RTS)" },
+  { slug: "opinions",               category: "Solvency II Guidelines" },
+  { slug: "supervisory-statements", category: "Solvency II Guidelines" },
 ];
 
 // CLI flags
@@ -67,25 +59,37 @@ const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const force = args.includes("--force");
 const limitIdx = args.indexOf("--limit");
-const fetchLimit = limitIdx !== -1 ? parseInt(args[limitIdx + 1] ?? "999", 10) : 999;
+const fetchLimit = limitIdx !== -1 ? parseInt(args[limitIdx + 1] ?? "999999", 10) : 999999;
+const sectionFlag = args.find((a) => a.startsWith("--section="))?.split("=")[1];
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 interface DocumentLink {
-  title: string;
-  url: string;
-  category: string;
-  filename: string;
+  title: string;              // taken from listing page anchor / og:title
+  detailUrl: string;          // /publications/<slug>_en
+  category: string;           // section-derived category
+  section: string;            // section slug
+}
+
+interface ResolvedDocument extends DocumentLink {
+  pdfUrl: string | null;      // direct PDF if attached, else null
+  filename: string;           // pdf filename or html-slug
+  publicationDate: string | null;
+  metaDescription: string | null;
 }
 
 interface FetchedDocument {
   title: string;
-  url: string;
+  url: string;                // original publication detail URL
+  pdfUrl: string | null;
   category: string;
+  section: string;
   filename: string;
   text: string;
+  publicationDate: string | null;
+  metaDescription: string | null;
   fetchedAt: string;
 }
 
@@ -93,7 +97,7 @@ interface FetchedDocument {
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
-async function sleep(ms: number): Promise<void> {
+function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
@@ -110,6 +114,7 @@ async function fetchWithRetry(
         const response = await fetch(url, {
           headers: { "User-Agent": USER_AGENT },
           signal: controller.signal,
+          redirect: "follow",
         });
         clearTimeout(timeoutId);
         if (!response.ok) {
@@ -138,7 +143,6 @@ async function fetchWithRetry(
 
 async function extractPdfText(pdfBuffer: Buffer): Promise<string> {
   try {
-    // Dynamic import to avoid top-level issues with pdf-parse
     const pdfParse = (await import("pdf-parse")).default;
     const data = await pdfParse(pdfBuffer);
     return data.text ?? "";
@@ -151,146 +155,141 @@ async function extractPdfText(pdfBuffer: Buffer): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// EIOPA portal scraping
+// Listing page scraping (paginated)
 // ---------------------------------------------------------------------------
 
-function isEiopaRelevant(title: string): boolean {
-  const lower = title.toLowerCase();
-  return EIOPA_KEYWORDS.some((kw) => lower.includes(kw));
-}
-
-async function scrapePortal(): Promise<DocumentLink[]> {
-  console.log(`Fetching EIOPA publications portal: ${PORTAL_URL}`);
-  const response = await fetchWithRetry(PORTAL_URL);
-  const html = await response.text();
-  const $ = cheerio.load(html);
-
+async function scrapeSectionListing(section: SectionDefinition): Promise<DocumentLink[]> {
   const links: DocumentLink[] = [];
+  const seen = new Set<string>();
 
-  // EIOPA publications page uses anchor tags with href pointing to PDFs and document pages
-  $("a[href]").each((_, el) => {
-    const href = $(el).attr("href") ?? "";
-    const title = $(el).text().trim();
-
-    if (!href || !title) return;
-    if (!href.toLowerCase().endsWith(".pdf") && !href.includes("/publications/") && !href.includes("/guidelines")) return;
-    if (!isEiopaRelevant(title)) return;
-
-    const fullUrl = href.startsWith("http") ? href : `${BASE_URL}${href}`;
-    const rawFilename = basename(href.split("?")[0] ?? href);
-    const filename = rawFilename || `eiopa-doc-${links.length + 1}.pdf`;
-
-    // Infer category from title or URL path
-    let category = "Solvency II Guidelines";
-    const lowerTitle = title.toLowerCase();
-    const lowerHref = href.toLowerCase();
-    if (lowerTitle.includes("iorp") || lowerTitle.includes("pension")) {
-      category = "DORA & IORP II";
-    } else if (lowerTitle.includes("dora") || lowerTitle.includes("ict") || lowerTitle.includes("digital operational")) {
-      category = "DORA & IORP II";
-    } else if (lowerTitle.includes("its") || lowerTitle.includes("rts") || lowerTitle.includes("implementing technical") || lowerTitle.includes("regulatory technical")) {
-      category = "Technical Standards (ITS/RTS)";
-    } else if (lowerHref.includes("technical-standard")) {
-      category = "Technical Standards (ITS/RTS)";
+  for (let page = 0; page < MAX_PAGES_PER_SECTION; page++) {
+    const listUrl = `${BASE_URL}/document-library/${section.slug}_en?page=${page}`;
+    console.log(`  Listing: ${listUrl}`);
+    let html: string;
+    try {
+      const response = await fetchWithRetry(listUrl);
+      html = await response.text();
+    } catch (err) {
+      console.error(`  Listing fetch failed on page ${page}: ${err instanceof Error ? err.message : String(err)}`);
+      break;
     }
 
-    // Avoid duplicates
-    if (links.some((l) => l.url === fullUrl)) return;
+    const $ = cheerio.load(html);
+    const pageLinks: DocumentLink[] = [];
 
-    links.push({ title, url: fullUrl, category, filename });
-  });
+    $('a[href*="/publications/"][href$="_en"]').each((_, el) => {
+      const href = $(el).attr("href") ?? "";
+      const title = $(el).text().trim().replace(/\s+/g, " ");
+      if (!href || !title) return;
 
-  // If scraping yielded nothing (portal may require JS), log and return known documents
-  if (links.length === 0) {
-    console.warn("  Warning: No links found via scraping. Portal may require JavaScript rendering.");
-    console.warn("  Falling back to known EIOPA document list.");
-    return getKnownDocuments();
+      const fullUrl = href.startsWith("http") ? href : `${BASE_URL}${href}`;
+      // Normalize: strip fragments
+      const normalized = fullUrl.split("#")[0]!;
+
+      if (seen.has(normalized)) return;
+      seen.add(normalized);
+
+      pageLinks.push({
+        title,
+        detailUrl: normalized,
+        category: section.category,
+        section: section.slug,
+      });
+    });
+
+    if (pageLinks.length === 0) {
+      console.log(`  Page ${page}: 0 new links — end of section ${section.slug}`);
+      break;
+    }
+
+    console.log(`  Page ${page}: +${pageLinks.length} items`);
+    links.push(...pageLinks);
+
+    // Rate limit between listing pages
+    await sleep(RATE_LIMIT_MS);
   }
 
   return links;
 }
 
-function getKnownDocuments(): DocumentLink[] {
-  return [
-    {
-      title: "Guidelines on Own Risk and Solvency Assessment (ORSA)",
-      url: "https://www.eiopa.europa.eu/document-library/guidelines/guidelines-own-risk-and-solvency-assessment_en",
-      category: "Solvency II Guidelines",
-      filename: "eiopa-bos-14-253-orsa-guidelines.pdf",
-    },
-    {
-      title: "Guidelines on System of Governance",
-      url: "https://www.eiopa.europa.eu/document-library/guidelines/guidelines-system-governance_en",
-      category: "Solvency II Guidelines",
-      filename: "eiopa-bos-14-259-system-of-governance.pdf",
-    },
-    {
-      title: "Guidelines on Outsourcing to Cloud Service Providers",
-      url: "https://www.eiopa.europa.eu/document-library/guidelines/guidelines-outsourcing-cloud-service-providers_en",
-      category: "Solvency II Guidelines",
-      filename: "eiopa-bos-20-600-cloud-outsourcing.pdf",
-    },
-    {
-      title: "Guidelines on Valuation of Technical Provisions",
-      url: "https://www.eiopa.europa.eu/document-library/guidelines/guidelines-valuation-technical-provisions_en",
-      category: "Solvency II Guidelines",
-      filename: "eiopa-bos-14-166-technical-provisions.pdf",
-    },
-    {
-      title: "Guidelines on Supervisory Reporting and Public Disclosure",
-      url: "https://www.eiopa.europa.eu/document-library/guidelines/guidelines-supervisory-reporting-public-disclosure_en",
-      category: "Solvency II Guidelines",
-      filename: "eiopa-bos-14-180-reporting-disclosure.pdf",
-    },
-    {
-      title: "Guidelines on Group Solvency",
-      url: "https://www.eiopa.europa.eu/document-library/guidelines/guidelines-group-solvency_en",
-      category: "Solvency II Guidelines",
-      filename: "eiopa-bos-14-175-group-solvency.pdf",
-    },
-    {
-      title: "RTS on ICT Risk Management Framework under DORA",
-      url: "https://www.eiopa.europa.eu/publications/rts-ict-risk-management-framework-dora_en",
-      category: "DORA & IORP II",
-      filename: "eiopa-dora-rts-ict-risk-management-2024.pdf",
-    },
-    {
-      title: "RTS on ICT Third-Party Risk Management under DORA",
-      url: "https://www.eiopa.europa.eu/publications/rts-ict-third-party-risk-dora_en",
-      category: "DORA & IORP II",
-      filename: "eiopa-dora-rts-ict-tprm-2024.pdf",
-    },
-    {
-      title: "Guidelines on Governance and Risk Assessment under IORP II",
-      url: "https://www.eiopa.europa.eu/document-library/guidelines/guidelines-governance-iorp-ii_en",
-      category: "DORA & IORP II",
-      filename: "eiopa-bos-19-856-iorp-governance.pdf",
-    },
-    {
-      title: "Commission Delegated Regulation EU 2015/35 — Solvency II Level 2",
-      url: "https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/?uri=CELEX:32015R0035",
-      category: "Technical Standards (ITS/RTS)",
-      filename: "eu-2015-35-solvency-ii-delegated-regulation.pdf",
-    },
-    {
-      title: "ITS on Supervisory Reporting QRT Templates — EU 2015/2450",
-      url: "https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/?uri=CELEX:32015R2450",
-      category: "Technical Standards (ITS/RTS)",
-      filename: "eu-2015-2450-its-qrt-templates.pdf",
-    },
-    {
-      title: "ITS on SFCR Public Disclosure Templates — EU 2015/2452",
-      url: "https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/?uri=CELEX:32015R2452",
-      category: "Technical Standards (ITS/RTS)",
-      filename: "eu-2015-2452-its-sfcr-templates.pdf",
-    },
-    {
-      title: "EIOPA Opinion on Sustainability Risks in Solvency II",
-      url: "https://www.eiopa.europa.eu/publications/opinion-sustainability-risks-solvency-ii_en",
-      category: "Solvency II Guidelines",
-      filename: "eiopa-bos-23-456-sustainability-opinion.pdf",
-    },
-  ];
+// ---------------------------------------------------------------------------
+// Detail page → PDF resolution
+// ---------------------------------------------------------------------------
+
+function sanitizeFilename(raw: string): string {
+  return raw
+    .replace(/%20/g, "-")
+    .replace(/%/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 150);
+}
+
+async function resolveDetailPage(doc: DocumentLink): Promise<ResolvedDocument | null> {
+  let html: string;
+  try {
+    const response = await fetchWithRetry(doc.detailUrl);
+    html = await response.text();
+  } catch (err) {
+    console.error(`  Detail fetch failed for ${doc.detailUrl}: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+  const $ = cheerio.load(html);
+
+  // Prefer og:title for clean title
+  const ogTitle = $('meta[property="og:title"]').attr("content")?.trim() || doc.title;
+  const metaDescription = $('meta[name="description"]').attr("content")?.trim() || null;
+
+  // Publication date: look for the definition list entry
+  let publicationDate: string | null = null;
+  $("dt").each((_, el) => {
+    const label = $(el).text().trim().toLowerCase();
+    if (label === "publication date") {
+      const dateText = $(el).next("dd").text().trim();
+      if (dateText) publicationDate = dateText;
+    }
+  });
+  if (!publicationDate) {
+    const og = $('meta[property="og:updated_time"]').attr("content");
+    if (og) publicationDate = og.slice(0, 10);
+  }
+
+  // Find the primary PDF attachment. EIOPA lists the main document first on
+  // detail pages, followed by annexes and supporting materials. We therefore
+  // pick the first `/document/download/` link whose filename ends in `.pdf`
+  // and skip zip bundles and annex-only attachments when a main PDF exists.
+  const pdfAnchors: { url: string; filename: string; isAnnex: boolean }[] = [];
+  $('a[href*="/document/download/"]').each((_, el) => {
+    const href = $(el).attr("href") ?? "";
+    if (!href) return;
+    const fullUrl = href.startsWith("http") ? href : `${BASE_URL}${href}`;
+    const filenameMatch = fullUrl.match(/filename=([^&]+)/);
+    const rawName = filenameMatch ? decodeURIComponent(filenameMatch[1]!) : `doc-${pdfAnchors.length + 1}.pdf`;
+    // Skip non-PDF bundle attachments entirely
+    if (!rawName.toLowerCase().endsWith(".pdf")) return;
+    const lowerName = rawName.toLowerCase();
+    const isAnnex = lowerName.startsWith("annex") || lowerName.includes(" annex ") || / annex [ivx0-9]/i.test(rawName);
+    pdfAnchors.push({ url: fullUrl, filename: rawName, isAnnex });
+  });
+
+  // Prefer first non-annex PDF; fall back to first annex; else null
+  const chosen = pdfAnchors.find((a) => !a.isAnnex) ?? pdfAnchors[0] ?? null;
+
+  // Unique filename per detail URL (avoid collisions when multiple docs share the same PDF name)
+  const slug = doc.detailUrl.replace(/^https?:\/\/[^/]+/, "").replace(/^\/+|\/+$/g, "").replace(/[^a-zA-Z0-9]/g, "-").slice(0, 80);
+  const filename = chosen
+    ? `${slug}__${sanitizeFilename(chosen.filename)}`
+    : `${slug}.html`;
+
+  return {
+    ...doc,
+    title: ogTitle,
+    pdfUrl: chosen?.url ?? null,
+    filename,
+    publicationDate,
+    metaDescription,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -303,96 +302,169 @@ async function main(): Promise<void> {
     console.log(`Created directory: ${RAW_DIR}`);
   }
 
-  let documents = await scrapePortal();
-  console.log(`Found ${documents.length} EIOPA-relevant documents`);
+  const sectionsToProcess = sectionFlag
+    ? SECTIONS.filter((s) => s.slug === sectionFlag)
+    : SECTIONS;
 
-  if (documents.length > fetchLimit) {
-    documents = documents.slice(0, fetchLimit);
-    console.log(`Limiting to ${fetchLimit} documents`);
+  if (sectionsToProcess.length === 0) {
+    console.error(`No matching section for --section=${sectionFlag}`);
+    process.exit(1);
   }
 
+  // ---- Phase 1: list all publication detail URLs ---------------------------
+  console.log(`\n== Phase 1: discovery ==`);
+  const allLinks: DocumentLink[] = [];
+  const seen = new Set<string>();
+  for (const section of sectionsToProcess) {
+    console.log(`\nSection: ${section.slug}`);
+    const links = await scrapeSectionListing(section);
+    for (const l of links) {
+      if (seen.has(l.detailUrl)) continue;
+      seen.add(l.detailUrl);
+      allLinks.push(l);
+    }
+  }
+  console.log(`\nDiscovered ${allLinks.length} unique publication pages`);
+
+  if (allLinks.length > fetchLimit) {
+    console.log(`Limiting to first ${fetchLimit}`);
+  }
+  const targetLinks = allLinks.slice(0, fetchLimit);
+
   if (dryRun) {
-    console.log("\n[DRY RUN] Would fetch:");
-    for (const doc of documents) {
-      console.log(`  ${doc.title} → ${doc.filename}`);
+    console.log("\n[DRY RUN] Would resolve + download:");
+    for (const l of targetLinks) {
+      console.log(`  [${l.section}] ${l.title} → ${l.detailUrl}`);
     }
     return;
   }
 
+  // ---- Phase 2: resolve each detail page and download the PDF --------------
+  console.log(`\n== Phase 2: resolve + download ==`);
   const fetched: FetchedDocument[] = [];
   let skipped = 0;
+  let errors = 0;
 
-  for (let i = 0; i < documents.length; i++) {
-    const doc = documents[i]!;
-    const destPath = join(RAW_DIR, doc.filename);
-    const metaPath = join(RAW_DIR, `${doc.filename}.meta.json`);
+  // Pre-scan already-fetched detail URLs from existing meta files so we can
+  // skip them without a detail-page round trip.
+  const alreadyFetchedUrls = new Set<string>();
+  if (!force && existsSync(RAW_DIR)) {
+    const { readdirSync, readFileSync } = await import("node:fs");
+    for (const f of readdirSync(RAW_DIR)) {
+      if (!f.endsWith(".meta.json")) continue;
+      try {
+        const meta = JSON.parse(readFileSync(join(RAW_DIR, f), "utf8")) as { url?: string };
+        if (meta.url) alreadyFetchedUrls.add(meta.url);
+      } catch {
+        // ignore
+      }
+    }
+    if (alreadyFetchedUrls.size > 0) {
+      console.log(`Found ${alreadyFetchedUrls.size} already-fetched documents — will skip without refetching detail pages`);
+    }
+  }
 
-    if (!force && existsSync(metaPath)) {
-      console.log(`[${i + 1}/${documents.length}] Skipping (exists): ${doc.title}`);
+  for (let i = 0; i < targetLinks.length; i++) {
+    const link = targetLinks[i]!;
+    console.log(`[${i + 1}/${targetLinks.length}] ${link.title}`);
+    console.log(`  Detail: ${link.detailUrl}`);
+
+    if (!force && alreadyFetchedUrls.has(link.detailUrl)) {
+      console.log(`  Skipping (already fetched)`);
       skipped++;
       continue;
     }
 
-    console.log(`[${i + 1}/${documents.length}] Fetching: ${doc.title}`);
-    console.log(`  URL: ${doc.url}`);
+    const resolved = await resolveDetailPage(link);
+    await sleep(RATE_LIMIT_MS);
 
+    if (!resolved) {
+      errors++;
+      continue;
+    }
+
+    const destPath = join(RAW_DIR, resolved.filename);
+    const metaPath = join(RAW_DIR, `${resolved.filename}.meta.json`);
+
+    if (!force && existsSync(metaPath)) {
+      console.log(`  Skipping (exists): ${resolved.filename}`);
+      skipped++;
+      continue;
+    }
+
+    let text = "";
     try {
-      const response = await fetchWithRetry(doc.url);
-      const buffer = Buffer.from(await response.arrayBuffer());
-
-      writeFileSync(destPath, buffer);
-      console.log(`  Downloaded: ${buffer.length.toLocaleString()} bytes → ${destPath}`);
-
-      let text = "";
-      if (doc.url.toLowerCase().endsWith(".pdf")) {
+      if (resolved.pdfUrl) {
+        console.log(`  PDF: ${resolved.pdfUrl}`);
+        const response = await fetchWithRetry(resolved.pdfUrl);
+        const buffer = Buffer.from(await response.arrayBuffer());
+        writeFileSync(destPath, buffer);
+        console.log(`  Downloaded: ${buffer.length.toLocaleString()} bytes → ${destPath}`);
         text = await extractPdfText(buffer);
         console.log(`  Extracted text: ${text.length.toLocaleString()} chars`);
       } else {
-        // HTML page — store raw HTML for downstream processing
-        text = buffer.toString("utf8").slice(0, 50_000);
-        console.log(`  Stored HTML: ${text.length.toLocaleString()} chars`);
+        console.log(`  No PDF attachment — storing HTML detail page`);
+        const response = await fetchWithRetry(resolved.detailUrl);
+        const html = await response.text();
+        writeFileSync(destPath, html, "utf8");
+        // Use cheerio to extract text content for the record
+        const $ = cheerio.load(html);
+        $("script, style, nav, header, footer").remove();
+        text = $("main").text().replace(/\s+/g, " ").trim() || $("body").text().replace(/\s+/g, " ").trim();
+        console.log(`  Extracted HTML text: ${text.length.toLocaleString()} chars`);
       }
 
       const meta: FetchedDocument = {
-        title: doc.title,
-        url: doc.url,
-        category: doc.category,
-        filename: doc.filename,
+        title: resolved.title,
+        url: resolved.detailUrl,
+        pdfUrl: resolved.pdfUrl,
+        category: resolved.category,
+        section: resolved.section,
+        filename: resolved.filename,
         text,
+        publicationDate: resolved.publicationDate,
+        metaDescription: resolved.metaDescription,
         fetchedAt: new Date().toISOString(),
       };
 
       writeFileSync(metaPath, JSON.stringify(meta, null, 2), "utf8");
       fetched.push(meta);
     } catch (err) {
-      console.error(
-        `  ERROR fetching ${doc.url}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      console.error(`  ERROR: ${err instanceof Error ? err.message : String(err)}`);
+      errors++;
     }
 
-    // Rate limit between requests
-    if (i < documents.length - 1) {
+    // Rate limit between documents
+    if (i < targetLinks.length - 1) {
       await sleep(RATE_LIMIT_MS);
     }
   }
 
   const summary = {
     fetchedAt: new Date().toISOString(),
-    total: documents.length,
+    discovered: allLinks.length,
+    attempted: targetLinks.length,
     fetched: fetched.length,
     skipped,
-    errors: documents.length - fetched.length - skipped,
+    errors,
+    bySection: SECTIONS.map((s) => ({
+      section: s.slug,
+      count: fetched.filter((d) => d.section === s.slug).length,
+    })),
     documents: fetched.map((d) => ({
       title: d.title,
       filename: d.filename,
+      section: d.section,
       category: d.category,
+      pdfUrl: d.pdfUrl,
+      publicationDate: d.publicationDate,
       textLength: d.text.length,
     })),
   };
 
   writeFileSync(join(RAW_DIR, "fetch-summary.json"), JSON.stringify(summary, null, 2), "utf8");
-  console.log(`\nFetch complete: ${fetched.length} fetched, ${skipped} skipped, ${summary.errors} errors`);
-  console.log(`Summary written to ${join(RAW_DIR, "fetch-summary.json")}`);
+  console.log(`\nFetch complete: ${fetched.length} fetched, ${skipped} skipped, ${errors} errors`);
+  console.log(`Summary: ${join(RAW_DIR, "fetch-summary.json")}`);
 }
 
 main().catch((err) => {
