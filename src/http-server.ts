@@ -31,6 +31,7 @@ import {
   listFrameworks,
   getStats,
 } from "./db.js";
+import { buildFreshnessReport } from "./freshness.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -182,6 +183,19 @@ const TOOLS = [
       required: [],
     },
   },
+  {
+    name: "check_data_freshness",
+    description:
+      "Per-source freshness report. Reads data/coverage.json at runtime and " +
+      "returns each source's last_fetched date, refresh frequency, age in days, " +
+      "and a Current/Due/OVERDUE status. Use before relying on time-sensitive " +
+      "regulatory text.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
 ];
 
 // --- Zod schemas --------------------------------------------------------------
@@ -234,9 +248,24 @@ function createMcpServer(): Server {
       };
     }
 
-    function errorContent(message: string) {
+    type ErrorType =
+      | "validation_error"
+      | "not_found"
+      | "unknown_tool"
+      | "internal_error";
+
+    function errorContent(message: string, errorType: ErrorType = "internal_error") {
       return {
-        content: [{ type: "text" as const, text: message }],
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              { error: message, _error_type: errorType, _meta: buildMeta() },
+              null,
+              2,
+            ),
+          },
+        ],
         isError: true as const,
       };
     }
@@ -284,6 +313,7 @@ function createMcpServer(): Server {
           return errorContent(
             `No guideline or technical standard found with reference: ${docId}. ` +
               "Use search_eiopa_guidelines to find available references.",
+            "not_found",
           );
         }
 
@@ -335,12 +365,25 @@ function createMcpServer(): Server {
           });
         }
 
+        case "check_data_freshness": {
+          const report = buildFreshnessReport();
+          return textContent({ ...report, _meta: buildMeta() });
+        }
+
         default:
-          return errorContent(`Unknown tool: ${name}`);
+          return errorContent(`Unknown tool: ${name}`, "unknown_tool");
       }
     } catch (err) {
+      if (err instanceof z.ZodError) {
+        return errorContent(
+          `Invalid arguments for ${name}: ${err.issues
+            .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+            .join("; ")}`,
+          "validation_error",
+        );
+      }
       const message = err instanceof Error ? err.message : String(err);
-      return errorContent(`Error executing ${name}: ${message}`);
+      return errorContent(`Error executing ${name}: ${message}`, "internal_error");
     }
   });
 

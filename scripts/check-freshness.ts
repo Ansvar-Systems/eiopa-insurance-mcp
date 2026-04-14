@@ -34,7 +34,7 @@ interface CoverageFile {
   generatedAt: string;
   mcp: string;
   sources: CoverageSource[];
-  totals: { frameworks: number; controls: number; circulars: number };
+  totals: Record<string, number>;
 }
 
 type Frequency = "daily" | "weekly" | "monthly" | "quarterly" | "annually";

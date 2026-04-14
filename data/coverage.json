@@ -1,20 +1,69 @@
 {
-  "generatedAt": "2026-04-14T06:04:10.942Z",
+  "schema_version": "1.0",
+  "generatedAt": "2026-04-14T10:51:45.910Z",
   "mcp": "eiopa-insurance-mcp",
-  "version": "0.1.0",
+  "mcp_name": "EIOPA Insurance Guidelines MCP",
+  "mcp_type": "compliance",
+  "database_version": "0.1.0",
+  "database_built": "2026-04-14T10:46:56.824Z",
+  "scope_statement": "EIOPA-published Solvency II guidelines, opinions, supervisory statements, and ITS/RTS technical standards covering insurance, reinsurance, insurance groups, and IORP II pension funds across the EU/EEA.",
+  "scope_exclusions": [
+    "EIOPA Q&A documents (informal guidance, not officially numbered)",
+    "Non-English EIOPA publications",
+    "National competent authority (NCA) implementation guidance",
+    "CJEU judgments interpreting EU insurance law",
+    "EBA / ESMA solo publications (covered by sibling MCPs)",
+    "Draft consultation papers (only finalised publications are included)"
+  ],
   "sources": [
     {
+      "id": "eiopa-publications",
       "name": "EIOPA Publications",
+      "authority": "European Insurance and Occupational Pensions Authority",
       "url": "https://www.eiopa.europa.eu/publications/guidelines",
-      "last_fetched": "2026-02-16",
+      "last_fetched": "2026-04-14",
+      "last_verified": "2026-04-14",
       "update_frequency": "monthly",
-      "item_count": 188,
+      "item_count": 185,
+      "expected_items": 185,
+      "measurement_unit": "publications",
+      "verification_method": "page_scraped",
+      "completeness": "snapshot",
+      "completeness_note": "Scrapes four EIOPA document-library sections: guidelines, technical-standards, opinions, supervisory-statements. Each publication is normalised into either a guideline row or a technical-standard row.",
       "status": "current"
+    }
+  ],
+  "gaps": [
+    {
+      "id": "qna",
+      "description": "EIOPA Q&A documents",
+      "reason": "Informal guidance, not officially numbered or versioned",
+      "impact": "low",
+      "planned": true
+    },
+    {
+      "id": "non-english",
+      "description": "Non-English EIOPA publications",
+      "reason": "English is the authoritative language for EU regulatory purposes",
+      "impact": "low",
+      "planned": false
+    },
+    {
+      "id": "nca-guidance",
+      "description": "National competent authority implementation guidance",
+      "reason": "Out of scope; per-jurisdiction MCPs cover NCA-level material",
+      "impact": "medium",
+      "planned": false
     }
   ],
   "totals": {
     "categories": 3,
     "guidelines": 105,
     "technical_standards": 80
+  },
+  "summary": {
+    "total_tools": 7,
+    "total_sources": 1,
+    "total_items": 185
   }
 }
