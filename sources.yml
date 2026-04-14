@@ -1,0 +1,22 @@
+schema_version: "1.0"
+mcp_name: "EIOPA Insurance Guidelines MCP"
+category: "compliance"
+
+sources:
+  - name: "EIOPA Publications"
+    authority: "European Insurance and Occupational Pensions Authority (EIOPA)"
+    official_portal: "https://www.eiopa.europa.eu/publications/guidelines"
+    retrieval_method: "HTML_SCRAPE"
+    format: "HTML + PDF"
+    authentication: "none"
+    update_frequency: "monthly"
+    license:
+      type: "open_access"
+      url: "https://www.eiopa.europa.eu/legal-notice_en"
+      summary: "Open access EU institution publications"
+    coverage:
+      scope: "EIOPA Guidelines on Solvency II (SCR, MCR, governance, internal models, group supervision, risk management); Opinions; Implementing Technical Standards (ITS); Regulatory Technical Standards (RTS); DORA insurance guidance; IORP II guidelines (pensions)"
+      version: "Current (Solvency II + DORA)"
+      item_count: "~100-150 guidelines, opinions, technical standards"
+    languages:
+      - "en"
