@@ -59,6 +59,7 @@ docker run -p 8382:8382 ghcr.io/ansvar-systems/eiopa-insurance-mcp:latest
 | `list_eiopa_categories` | List all EIOPA publication categories with item counts |
 | `about` | Server metadata, version, and coverage summary |
 | `list_sources` | Data provenance: sources, retrieval method, licensing |
+| `check_data_freshness` | Per-source last_fetched date, age, and Current/Due/OVERDUE status |
 
 See [TOOLS.md](TOOLS.md) for parameters, return formats, and examples.
 
@@ -78,10 +79,16 @@ See [sources.yml](sources.yml) for full provenance details.
 git clone https://github.com/Ansvar-Systems/eiopa-insurance-mcp.git
 cd eiopa-insurance-mcp
 npm install
-npm run seed        # Create sample database
+npm run seed        # Sample database (used as a fallback in CI)
 npm run build       # Compile TypeScript
-npm test            # Run tests
+npm test            # Run smoke tests
 npm run dev         # Start HTTP dev server with hot reload
+```
+
+To rebuild against live EIOPA data:
+
+```bash
+npm run ingest:full   # fetch -> build:db -> coverage:update
 ```
 
 ## Disclaimer

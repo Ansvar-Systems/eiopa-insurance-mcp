@@ -1,0 +1,19 @@
+# Default reviewers for every PR.
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+* @Ansvar-Systems/maintainers
+
+# Ingestion + database
+/scripts/ @Ansvar-Systems/maintainers
+/src/db.ts @Ansvar-Systems/maintainers
+
+# CI/CD and security
+/.github/ @Ansvar-Systems/maintainers
+/Dockerfile @Ansvar-Systems/maintainers
+
+# Public-facing docs
+/README.md @Ansvar-Systems/maintainers
+/COVERAGE.md @Ansvar-Systems/maintainers
+/TOOLS.md @Ansvar-Systems/maintainers
+/SECURITY.md @Ansvar-Systems/maintainers
+/DISCLAIMER.md @Ansvar-Systems/maintainers

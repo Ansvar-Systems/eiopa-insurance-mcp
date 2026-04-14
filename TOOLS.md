@@ -1,6 +1,14 @@
 # Tools — EIOPA Insurance Guidelines MCP
 
-Every response includes a `_meta` object with `disclaimer`, `data_age`, and `source_url`.
+Seven tools across three categories: search (2), lookup (1), meta (4).
+
+Every successful response includes a `_meta` object with `disclaimer`,
+`data_age`, and `source_url`. Retrieval tools also include a `_citation` object
+with `canonical_ref` and `display_text` for inline citation linking.
+
+Every error response is a JSON object with `error`, `_error_type`
+(`validation_error` | `not_found` | `unknown_tool` | `internal_error`), and
+`_meta`.
 
 ---
 
@@ -296,3 +304,85 @@ None.
   }
 }
 ```
+
+---
+
+## check_data_freshness
+
+Per-source freshness report. Reads `data/coverage.json` at runtime and returns
+each source's `last_fetched` date, refresh frequency, age in days, and a
+Current / Due / OVERDUE / Never fetched status. Use this before relying on
+time-sensitive regulatory text.
+
+### Parameters
+
+None.
+
+### Example Call
+
+```json
+{
+  "name": "check_data_freshness",
+  "arguments": {}
+}
+```
+
+### Example Response
+
+```json
+{
+  "checked_at": "2026-04-14T10:51:45.910Z",
+  "coverage_generated_at": "2026-04-14T10:51:45.910Z",
+  "database_built": "2026-04-14T10:46:56.824Z",
+  "any_stale": false,
+  "sources": [
+    {
+      "name": "EIOPA Publications",
+      "url": "https://www.eiopa.europa.eu/publications/guidelines",
+      "last_fetched": "2026-04-14",
+      "update_frequency": "monthly",
+      "max_age_days": 31,
+      "age_days": 0,
+      "status": "Current",
+      "reason": "within expected refresh window"
+    }
+  ],
+  "refresh_command": "gh workflow run ingest.yml --repo Ansvar-Systems/eiopa-insurance-mcp -f force=true",
+  "coverage_path": "/app/data/coverage.json",
+  "_meta": {
+    "disclaimer": "This data is provided for informational reference only...",
+    "data_age": "See coverage.json; refresh frequency: monthly",
+    "source_url": "https://www.eiopa.europa.eu/publications/guidelines"
+  }
+}
+```
+
+Status values:
+
+| Status | Meaning |
+|--------|---------|
+| `Current` | Within expected refresh window |
+| `Due` | Within 20% of refresh deadline (refresh recommended) |
+| `OVERDUE` | Past expected refresh date |
+| `Never fetched` | `last_fetched` is null in coverage.json |
+
+---
+
+## Errors
+
+Every tool can return an error response in this shape:
+
+```json
+{
+  "error": "No guideline or technical standard found with reference: XYZ. Use search_eiopa_guidelines to find available references.",
+  "_error_type": "not_found",
+  "_meta": { "disclaimer": "...", "data_age": "...", "source_url": "..." }
+}
+```
+
+| `_error_type` | When raised |
+|---------------|-------------|
+| `validation_error` | Arguments fail Zod schema (missing required field, wrong type, out-of-range number) |
+| `not_found` | `get_eiopa_guideline` cannot resolve the supplied reference |
+| `unknown_tool` | Tool name does not exist on this server |
+| `internal_error` | Database or other unexpected runtime failure |
