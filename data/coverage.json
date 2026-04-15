@@ -3,7 +3,8 @@
   "generatedAt": "2026-04-14T10:51:45.910Z",
   "mcp": "eiopa-insurance-mcp",
   "mcp_name": "EIOPA Insurance Guidelines MCP",
-  "mcp_type": "compliance",
+  "mcp_type": "regulatory_publications",
+  "version": "0.1.0",
   "database_version": "0.1.0",
   "database_built": "2026-04-14T10:46:56.824Z",
   "scope_statement": "EIOPA-published Solvency II guidelines, opinions, supervisory statements, and ITS/RTS technical standards covering insurance, reinsurance, insurance groups, and IORP II pension funds across the EU/EEA.",
@@ -13,23 +14,68 @@
     "National competent authority (NCA) implementation guidance",
     "CJEU judgments interpreting EU insurance law",
     "EBA / ESMA solo publications (covered by sibling MCPs)",
-    "Draft consultation papers (only finalised publications are included)"
+    "Draft consultation papers (only finalised publications are included)",
+    "XBRL taxonomy file contents"
   ],
   "sources": [
     {
-      "id": "eiopa-publications",
-      "name": "EIOPA Publications",
+      "id": "eiopa-guidelines",
+      "name": "EIOPA Guidelines",
       "authority": "European Insurance and Occupational Pensions Authority",
-      "url": "https://www.eiopa.europa.eu/publications/guidelines",
+      "url": "https://www.eiopa.europa.eu/document-library/guidelines_en",
       "last_fetched": "2026-04-14",
       "last_verified": "2026-04-14",
       "update_frequency": "monthly",
-      "item_count": 185,
-      "expected_items": 185,
-      "measurement_unit": "publications",
+      "item_count": 73,
+      "expected_items": 73,
+      "measurement_unit": "guidelines",
       "verification_method": "page_scraped",
       "completeness": "snapshot",
-      "completeness_note": "Scrapes four EIOPA document-library sections: guidelines, technical-standards, opinions, supervisory-statements. Each publication is normalised into either a guideline row or a technical-standard row.",
+      "status": "current"
+    },
+    {
+      "id": "eiopa-technical-standards",
+      "name": "EIOPA Technical Standards (ITS/RTS)",
+      "authority": "European Insurance and Occupational Pensions Authority",
+      "url": "https://www.eiopa.europa.eu/document-library/technical-standards_en",
+      "last_fetched": "2026-04-14",
+      "last_verified": "2026-04-14",
+      "update_frequency": "monthly",
+      "item_count": 32,
+      "expected_items": 32,
+      "measurement_unit": "technical standards",
+      "verification_method": "page_scraped",
+      "completeness": "snapshot",
+      "status": "current"
+    },
+    {
+      "id": "eiopa-opinions",
+      "name": "EIOPA Opinions",
+      "authority": "European Insurance and Occupational Pensions Authority",
+      "url": "https://www.eiopa.europa.eu/document-library/opinions_en",
+      "last_fetched": "2026-04-14",
+      "last_verified": "2026-04-14",
+      "update_frequency": "monthly",
+      "item_count": 54,
+      "expected_items": 54,
+      "measurement_unit": "opinions",
+      "verification_method": "page_scraped",
+      "completeness": "snapshot",
+      "status": "current"
+    },
+    {
+      "id": "eiopa-supervisory-statements",
+      "name": "EIOPA Supervisory Statements",
+      "authority": "European Insurance and Occupational Pensions Authority",
+      "url": "https://www.eiopa.europa.eu/document-library/supervisory-statements_en",
+      "last_fetched": "2026-04-14",
+      "last_verified": "2026-04-14",
+      "update_frequency": "monthly",
+      "item_count": 30,
+      "expected_items": 30,
+      "measurement_unit": "supervisory statements",
+      "verification_method": "page_scraped",
+      "completeness": "snapshot",
       "status": "current"
     }
   ],
@@ -63,7 +109,7 @@
   },
   "summary": {
     "total_tools": 7,
-    "total_sources": 1,
-    "total_items": 185
+    "total_sources": 4,
+    "total_items": 189
   }
 }
